@@ -10,7 +10,10 @@ import { Progress } from '@/components/ui/progress';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import AuthDialog from '@/components/AuthDialog';
 import AvatarUpload from '@/components/AvatarUpload';
+import AdminPanel from '@/components/AdminPanel';
 import { getStoredUser, getCurrentUser, logout, type User } from '@/lib/auth';
+import { matchesAPI, type Match } from '@/lib/api';
+import { useToast } from '@/hooks/use-toast';
 
 const mockPlayers = [
   { id: 1, name: 'Александр "Снайпер" Иванов', team: 'Альфа', rating: 2847, matches: 156, wins: 128, kills: 1249, deaths: 387, kd: 3.23, status: 'active' },
@@ -41,6 +44,8 @@ const Index = () => {
   const [user, setUser] = useState<User | null>(null);
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [matches, setMatches] = useState<Match[]>([]);
+  const { toast } = useToast();
 
   useEffect(() => {
     const loadUser = async () => {
@@ -54,7 +59,17 @@ const Index = () => {
       }
     };
     loadUser();
+    loadMatches();
   }, []);
+
+  const loadMatches = async () => {
+    try {
+      const data = await matchesAPI.getMatches();
+      setMatches(data);
+    } catch (error) {
+      console.error('Failed to load matches:', error);
+    }
+  };
 
   const handleAuthSuccess = async () => {
     const currentUser = await getCurrentUser();
@@ -70,6 +85,28 @@ const Index = () => {
   const handleAvatarUpload = (avatarUrl: string) => {
     if (user) {
       setUser({ ...user, avatar_url: avatarUrl });
+    }
+  };
+
+  const handleJoinMatch = async (matchId: number) => {
+    if (!user) {
+      setAuthDialogOpen(true);
+      return;
+    }
+
+    try {
+      await matchesAPI.joinMatch(matchId);
+      toast({
+        title: 'Успешно!',
+        description: 'Вы записаны на матч',
+      });
+      loadMatches();
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Ошибка',
+        description: error instanceof Error ? error.message : 'Не удалось записаться',
+      });
     }
   };
 
@@ -305,7 +342,7 @@ const Index = () => {
 
       <main className="container mx-auto px-4 py-8">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full max-w-md grid-cols-3">
+          <TabsList className="grid w-full max-w-2xl grid-cols-4">
             <TabsTrigger value="players" className="gap-2">
               <Icon name="Users" size={16} />
               Игроки
@@ -318,6 +355,16 @@ const Index = () => {
               <Icon name="History" size={16} />
               Матчи
             </TabsTrigger>
+            <TabsTrigger value="join" className="gap-2">
+              <Icon name="UserPlus" size={16} />
+              Вступить
+            </TabsTrigger>
+            {user?.is_admin && (
+              <TabsTrigger value="admin" className="gap-2">
+                <Icon name="Settings" size={16} />
+                Админ
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="players" className="space-y-4">
@@ -441,38 +488,137 @@ const Index = () => {
             <Card>
               <CardHeader>
                 <CardTitle>История матчей</CardTitle>
-                <CardDescription>Последние проведенные игры</CardDescription>
+                <CardDescription>Все проведенные и запланированные игры</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {mockMatches.map((match) => (
-                    <div key={match.id} className="p-4 rounded-lg border hover:bg-accent/50 transition-colors">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                          <Icon name="Swords" size={24} className="text-primary" />
-                          <div>
-                            <div className="font-medium text-lg">
-                              {match.teams[0]} vs {match.teams[1]}
-                            </div>
-                            <div className="text-sm text-muted-foreground">
-                              {match.date} • {match.type} • {match.duration}
+                  {matches.length === 0 ? (
+                    <div className="text-center text-muted-foreground py-8">
+                      Матчи пока не созданы
+                    </div>
+                  ) : (
+                    matches.map((match) => (
+                      <div key={match.id} className="p-4 rounded-lg border hover:bg-accent/50 transition-colors">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-4">
+                            <Icon name="Swords" size={24} className="text-primary" />
+                            <div>
+                              <div className="font-medium text-lg">{match.title}</div>
+                              <div className="text-sm text-muted-foreground">
+                                {new Date(match.match_date).toLocaleDateString('ru')} • {match.match_type}
+                                {match.team1_name && match.team2_name && ` • ${match.team1_name} vs ${match.team2_name}`}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-2xl font-bold">{match.score}</div>
-                          <Badge variant="outline" className="mt-1">
-                            <Icon name="Trophy" size={12} className="mr-1" />
-                            {match.winner}
-                          </Badge>
+                          <div className="text-right">
+                            {match.status === 'completed' ? (
+                              <>
+                                <div className="text-2xl font-bold">
+                                  {match.score_team1}-{match.score_team2}
+                                </div>
+                                {match.winner_name && (
+                                  <Badge variant="outline" className="mt-1">
+                                    <Icon name="Trophy" size={12} className="mr-1" />
+                                    {match.winner_name}
+                                  </Badge>
+                                )}
+                              </>
+                            ) : (
+                              <Badge>{match.status === 'upcoming' ? 'Предстоит' : match.status}</Badge>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               </CardContent>
             </Card>
           </TabsContent>
+
+          <TabsContent value="join" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Вступить в матч</CardTitle>
+                <CardDescription>Запишитесь на предстоящие матчи</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {user && (
+                    <Card className="bg-primary/5">
+                      <CardContent className="pt-6">
+                        <div className="grid md:grid-cols-4 gap-4 text-center">
+                          <div>
+                            <div className="text-2xl font-bold text-primary">{user.rating || 1000}</div>
+                            <div className="text-sm text-muted-foreground">Рейтинг</div>
+                          </div>
+                          <div>
+                            <div className="text-2xl font-bold">{user.matches_played || 0}</div>
+                            <div className="text-sm text-muted-foreground">Матчей</div>
+                          </div>
+                          <div>
+                            <div className="text-2xl font-bold">{user.matches_won || 0}</div>
+                            <div className="text-sm text-muted-foreground">Побед</div>
+                          </div>
+                          <div>
+                            <div className="text-2xl font-bold">
+                              {user.matches_played ? Math.round((user.matches_won / user.matches_played) * 100) : 0}%
+                            </div>
+                            <div className="text-sm text-muted-foreground">Винрейт</div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  <div className="space-y-3">
+                    {matches.filter(m => m.status === 'upcoming').length === 0 ? (
+                      <div className="text-center text-muted-foreground py-8">
+                        Нет открытых матчей для записи
+                      </div>
+                    ) : (
+                      matches
+                        .filter(m => m.status === 'upcoming')
+                        .map((match) => (
+                          <div key={match.id} className="p-4 rounded-lg border">
+                            <div className="flex items-center justify-between">
+                              <div className="flex-1">
+                                <div className="font-medium text-lg">{match.title}</div>
+                                <div className="text-sm text-muted-foreground mt-1">
+                                  {new Date(match.match_date).toLocaleString('ru')} • {match.match_type}
+                                </div>
+                                {match.team1_name && match.team2_name && (
+                                  <div className="text-sm mt-1">
+                                    {match.team1_name} vs {match.team2_name}
+                                  </div>
+                                )}
+                                <div className="flex gap-4 mt-2 text-sm text-muted-foreground">
+                                  <span>
+                                    <Icon name="Users" size={14} className="inline mr-1" />
+                                    {match.registered_players}
+                                    {match.max_players && `/${match.max_players}`} игроков
+                                  </span>
+                                </div>
+                              </div>
+                              <Button onClick={() => handleJoinMatch(match.id)}>
+                                <Icon name="UserPlus" size={16} className="mr-2" />
+                                Записаться
+                              </Button>
+                            </div>
+                          </div>
+                        ))
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {user?.is_admin && (
+            <TabsContent value="admin">
+              <AdminPanel />
+            </TabsContent>
+          )}
         </Tabs>
       </main>
     </div>
