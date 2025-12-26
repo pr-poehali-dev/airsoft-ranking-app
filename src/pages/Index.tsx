@@ -1,12 +1,16 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import Icon from '@/components/ui/icon';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Progress } from '@/components/ui/progress';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import AuthDialog from '@/components/AuthDialog';
+import AvatarUpload from '@/components/AvatarUpload';
+import { getStoredUser, getCurrentUser, logout, type User } from '@/lib/auth';
 
 const mockPlayers = [
   { id: 1, name: 'Александр "Снайпер" Иванов', team: 'Альфа', rating: 2847, matches: 156, wins: 128, kills: 1249, deaths: 387, kd: 3.23, status: 'active' },
@@ -34,6 +38,40 @@ const mockMatches = [
 const Index = () => {
   const [selectedPlayer, setSelectedPlayer] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState('players');
+  const [user, setUser] = useState<User | null>(null);
+  const [authDialogOpen, setAuthDialogOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+
+  useEffect(() => {
+    const loadUser = async () => {
+      const storedUser = getStoredUser();
+      if (storedUser) {
+        setUser(storedUser);
+        const currentUser = await getCurrentUser();
+        if (currentUser) {
+          setUser(currentUser);
+        }
+      }
+    };
+    loadUser();
+  }, []);
+
+  const handleAuthSuccess = async () => {
+    const currentUser = await getCurrentUser();
+    setUser(currentUser);
+  };
+
+  const handleLogout = () => {
+    logout();
+    setUser(null);
+    setProfileOpen(false);
+  };
+
+  const handleAvatarUpload = (avatarUrl: string) => {
+    if (user) {
+      setUser({ ...user, avatar_url: avatarUrl });
+    }
+  };
 
   const player = mockPlayers.find(p => p.id === selectedPlayer);
 
@@ -184,13 +222,86 @@ const Index = () => {
                 <p className="text-sm text-muted-foreground">Система рейтинга игроков</p>
               </div>
             </div>
-            <Button variant="outline">
-              <Icon name="Settings" size={18} className="mr-2" />
-              Настройки
-            </Button>
+            <div className="flex items-center gap-2">
+              {user ? (
+                <Button variant="outline" onClick={() => setProfileOpen(true)}>
+                  <Avatar className="h-6 w-6 mr-2">
+                    {user.avatar_url && <AvatarImage src={user.avatar_url} />}
+                    <AvatarFallback className="text-xs">
+                      {user.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                    </AvatarFallback>
+                  </Avatar>
+                  {user.name}
+                </Button>
+              ) : (
+                <Button onClick={() => setAuthDialogOpen(true)}>
+                  <Icon name="LogIn" size={18} className="mr-2" />
+                  Войти
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </header>
+
+      <AuthDialog 
+        open={authDialogOpen} 
+        onOpenChange={setAuthDialogOpen}
+        onSuccess={handleAuthSuccess}
+      />
+
+      <Sheet open={profileOpen} onOpenChange={setProfileOpen}>
+        <SheetContent>
+          <SheetHeader>
+            <SheetTitle>Мой профиль</SheetTitle>
+            <SheetDescription>
+              Управление аватаром и настройками
+            </SheetDescription>
+          </SheetHeader>
+          
+          {user && (
+            <div className="mt-6 space-y-6">
+              <AvatarUpload 
+                currentAvatar={user.avatar_url}
+                userName={user.name}
+                onUploadSuccess={handleAvatarUpload}
+              />
+              
+              <div className="space-y-3 pt-4 border-t">
+                <div>
+                  <div className="text-sm text-muted-foreground">Email</div>
+                  <div className="font-medium">{user.email}</div>
+                </div>
+                <div>
+                  <div className="text-sm text-muted-foreground">Имя</div>
+                  <div className="font-medium">{user.name}</div>
+                </div>
+                {user.nickname && (
+                  <div>
+                    <div className="text-sm text-muted-foreground">Никнейм</div>
+                    <div className="font-medium">{user.nickname}</div>
+                  </div>
+                )}
+                {user.team && (
+                  <div>
+                    <div className="text-sm text-muted-foreground">Команда</div>
+                    <div className="font-medium">{user.team}</div>
+                  </div>
+                )}
+              </div>
+
+              <Button 
+                variant="destructive" 
+                className="w-full"
+                onClick={handleLogout}
+              >
+                <Icon name="LogOut" size={16} className="mr-2" />
+                Выйти
+              </Button>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
 
       <main className="container mx-auto px-4 py-8">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
